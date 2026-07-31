@@ -55,13 +55,15 @@ The solution automatically extracts channel metrics, stores historical snapshots
 
 ```text
 .
-├── lambda_etl/
-│   └── lambda_function.py
+├── lambda_function.py
+│ 
 │
-├── lambda_notification/
-│   └── lambda_function.py
+├── lambda_function.py
+│   
 │
 ├── channels.json
+│
+├── Youtube.ipynb
 │
 └── README.md
 ```
