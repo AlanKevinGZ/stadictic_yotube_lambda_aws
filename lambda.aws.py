@@ -11,10 +11,9 @@
  # AUTHOR: https://github.com/AlanKevinGZ 2026
 
 # ===============================
-
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
 
 import boto3
@@ -24,7 +23,7 @@ import requests
 s3_client = boto3.client("s3")
 
 
-def get_stats(api_key, channel_id):
+def get_stats(api_key, channel_id, snapshot_time):
     url = (
         "https://youtube.googleapis.com/youtube/v3/channels"
         f"?part=snippet,statistics&id={channel_id}&key={api_key}"
@@ -43,7 +42,7 @@ def get_stats(api_key, channel_id):
 
     return {
         "Channel_id": channel_id,
-        "Created_at": datetime.now().strftime("%Y-%m-%d"),
+        "Created_at": snapshot_time,
         "Channel_name": item["snippet"]["title"],
         "Total_Views": int(stats["viewCount"]),
         "Subscribers": int(stats["subscriberCount"]),
@@ -54,8 +53,10 @@ def get_stats(api_key, channel_id):
 def channel_stats(channel_ids, api_key):
     data = []
 
+    snapshot_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
     for channel_id in channel_ids:
-        data.append(get_stats(api_key, channel_id))
+        data.append(get_stats(api_key, channel_id, snapshot_time))
 
     return pd.DataFrame(data)
 
@@ -67,7 +68,7 @@ def lambda_handler(event, context):
     api_key = os.environ["API_KEY"]
     file_channels = os.environ["FILE_CHANNELS"]
 
-    # Leer el archivo JSON desde S3
+    # Leer archivo JSON desde S3
     response = s3_client.get_object(
         Bucket=input_bucket,
         Key=file_channels
@@ -83,21 +84,28 @@ def lambda_handler(event, context):
     # Obtener estadísticas de los canales
     df_channels = channel_stats(channel_ids, api_key)
 
-    # Convertir DataFrame a CSV en memoria
+    # Convertir DataFrame a CSV
     csv_buffer = StringIO()
     df_channels.to_csv(csv_buffer, index=False)
 
-    # Guardar CSV en el bucket de salida
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    # Nombre único del archivo
+    file_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
 
+    # Guardar en S3
     s3_client.put_object(
         Bucket=output_bucket,
-        Key=f'raw/youtube_stats_{timestamp}.csv',
+        Key=f"raw/youtube_stats_{file_timestamp}.csv",
         Body=csv_buffer.getvalue(),
         ContentType="text/csv"
     )
 
     return {
         "statusCode": 200,
-        "body": json.dumps("Proceso completado correctamente.")
+        "body": json.dumps(
+            {
+                "message": "Proceso completado correctamente.",
+                "snapshot_time": df_channels["Created_at"].iloc[0],
+                "records": len(df_channels)
+            }
+        )
     }
